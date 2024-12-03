@@ -4,6 +4,7 @@ import os
 import csv
 import ffmpeg
 from bs4 import BeautifulSoup
+from datetime import datetime
 
 # URL of the RSS feed
 rss_url = "https://anchor.fm/s/8a0924fc/podcast/rss"
@@ -18,23 +19,22 @@ metadata_csv = "podcast_metadata.csv"
 os.makedirs(save_dir, exist_ok=True)
 
 # Function to download media file
-def download_media(file_url, title, extension):
-    file_name = f"{title}.{extension}"
-    file_path = os.path.join(save_dir, file_name)
+def download_media(file_url, filename, extension):
+    file_path = os.path.join(save_dir, filename)
 
     if not os.path.exists(file_path):
-        print(f"Downloading: {file_name}")
+        print(f"Downloading: {filename}")
         response = requests.get(file_url, stream=True)
         if response.status_code == 200:
             with open(file_path, 'wb') as media_file:
                 for chunk in response.iter_content(chunk_size=1024):
                     if chunk:
                         media_file.write(chunk)
-            print(f"Downloaded: {file_name}")
+            print(f"Downloaded: {filename}")
         else:
-            print(f"Failed to download: {file_name}")
+            print(f"Failed to download: {filename}")
     else:
-        print(f"File {file_name} already exists!")
+        print(f"File {filename} already exists!")
 
 # Function to convert M4A to MP3 using ffmpeg
 def convert_m4a_to_mp3(m4a_file, mp3_file):
@@ -56,13 +56,16 @@ def fetch_rss_metadata():
 
     with open(metadata_csv, mode='w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
-        writer.writerow(["Title", "Description", "Published", "Creator", "Duration", "Media URL", "File Type"])
+        writer.writerow(["Title", "Description", "Published", "Creator", "Duration", "Media URL", "File Type", "Filename"])
+
+        # Counter for sequential filenames
+        count = 1
 
         for entry in feed.entries:
             title = entry.title.replace("/", "-")
             description = clean_html(entry.summary)
-            published = entry.published if 'published' in entry else "Unknown"
-            creator = clean_html(entry.get("dc:creator", "Unknown"))  # Extracting creator
+            published = datetime.strptime(entry.published, "%a, %d %b %Y %H:%M:%S GMT").strftime("%Y-%m-%d") if 'published' in entry else "Unknown"
+            creator = clean_html(entry.get("author", "Unknown"))  # Extracting creator from <author> field
             duration = entry.get("itunes_duration", "Unknown")
             media_url = None
             file_type = None
@@ -87,17 +90,25 @@ def fetch_rss_metadata():
                         unsupported_files.append(media_type)
 
                     if media_url and file_type:
-                        download_media(media_url, title, file_type)
+                        # Define the custom filename using context and sequential number
+                        filename = f"podcast_{str(count).zfill(2)}.{file_type}"
+
+                        # Download the media
+                        download_media(media_url, filename, file_type)
 
                         # Convert .m4a to .mp3 if necessary
                         if file_type == 'm4a':
-                            m4a_file = os.path.join(save_dir, f"{title}.m4a")
-                            mp3_file = os.path.join(save_dir, f"{title}.mp3")
+                            m4a_file = os.path.join(save_dir, filename)
+                            mp3_file = os.path.join(save_dir, f"podcast_{str(count).zfill(2)}.mp3")
                             convert_m4a_to_mp3(m4a_file, mp3_file)
                             os.remove(m4a_file)  # Remove the original M4A file after conversion
                             file_type = 'mp3'  # Update the file type
 
-                        writer.writerow([title, description, published, creator, duration, media_url, file_type])
+                        # Write metadata to CSV
+                        writer.writerow([title, description, published, creator, duration, media_url, file_type, filename])
+
+                        # Increment the counter for the next file
+                        count += 1
                         break
 
             if not media_url:

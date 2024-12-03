@@ -22,9 +22,7 @@ On Windows
 
 ## Step 3: Install Required Packages
 
-pip install feedparser requests pydub ffmpeg-python audiosegment
-
-pip install feedparser requests ffmpeg-python
+pip install feedparser requests ffmpeg-python beautifulsoup4 python-dateutil
 
 ## Step 4: Run the Script
 
