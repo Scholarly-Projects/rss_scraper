@@ -22,7 +22,9 @@ On Windows
 
 ## Step 3: Install Required Packages
 
-pip install yt-dlp beautifulsoup4 requests spotipy
+pip install feedparser requests pydub ffmpeg-python audiosegment
+
+pip install feedparser requests ffmpeg-python
 
 ## Step 4: Run the Script
 

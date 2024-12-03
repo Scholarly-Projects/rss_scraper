@@ -1,1 +1,1 @@
-# media_scraper
+# rss_scraper

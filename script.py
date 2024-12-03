@@ -1,87 +1,110 @@
-import yt_dlp
+import feedparser
 import requests
-from bs4 import BeautifulSoup
+import os
 import csv
+import ffmpeg
+from bs4 import BeautifulSoup
 
-# Function to scrape Spotify podcast metadata
-def fetch_spotify_metadata(podcast_url, csv_writer):
-    response = requests.get(podcast_url)
-    soup = BeautifulSoup(response.content, 'html.parser')
+# URL of the RSS feed
+rss_url = "https://anchor.fm/s/8a0924fc/podcast/rss"
 
-    # Adjust this based on actual podcast page structure
-    episode_divs = soup.find_all('div', class_='EpisodeGridItem')
+# Directory where you want to save the media files
+save_dir = "podcast_media_files"
 
-    if not episode_divs:
-        print("No episodes found on the page. The page structure may have changed.")
-        return
+# CSV file to save metadata
+metadata_csv = "podcast_metadata.csv"
 
-    for episode in episode_divs:
-        title = episode.find('h2', class_='EpisodeTitle').text.strip() if episode.find('h2', class_='EpisodeTitle') else 'N/A'
-        description = episode.find('p', class_='EpisodeDescription').text.strip() if episode.find('p', class_='EpisodeDescription') else 'N/A'
-        release_date = episode.find('time', class_='ReleaseDate').text.strip() if episode.find('time', class_='ReleaseDate') else 'N/A'
-        
-        # Write episode data to the CSV
-        csv_writer.writerow([title, 'Spotify', release_date, 'N/A', description, 'N/A'])
+# Make sure the save directory exists
+os.makedirs(save_dir, exist_ok=True)
 
-# Function to download YouTube audio and video and extract metadata
-def fetch_youtube_audio_and_video(playlist_url, csv_writer):
-    # Specify the location of ffmpeg
-    ffmpeg_location = "/opt/homebrew/bin/ffmpeg"  # Adjust this path if necessary
+# Function to download media file
+def download_media(file_url, title, extension):
+    file_name = f"{title}.{extension}"
+    file_path = os.path.join(save_dir, file_name)
 
-    # Path to your cookies.txt file
-    cookies_path = '/Users/andrewweymouth/Documents/GitHub/media_scraper/cookies.txt'  # Replace with the path to your cookies.txt file
+    if not os.path.exists(file_path):
+        print(f"Downloading: {file_name}")
+        response = requests.get(file_url, stream=True)
+        if response.status_code == 200:
+            with open(file_path, 'wb') as media_file:
+                for chunk in response.iter_content(chunk_size=1024):
+                    if chunk:
+                        media_file.write(chunk)
+            print(f"Downloaded: {file_name}")
+        else:
+            print(f"Failed to download: {file_name}")
+    else:
+        print(f"File {file_name} already exists!")
 
-    # YouTube-DL options
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'outtmpl': '%(title)s.%(ext)s',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'ffmpeg_location': ffmpeg_location,  # Specify the location of ffmpeg
-        'extractaudio': True,  # Only download audio
-        'quiet': False,  # Enable verbose output for debugging
-        'cookies': cookies_path,  # Correct path to cookies.txt
-    }
+# Function to convert M4A to MP3 using ffmpeg
+def convert_m4a_to_mp3(m4a_file, mp3_file):
+    print(f"Converting {m4a_file} to {mp3_file}")
+    try:
+        ffmpeg.input(m4a_file).output(mp3_file).run()
+        print(f"Conversion successful: {mp3_file}")
+    except ffmpeg.Error as e:
+        print(f"Error converting {m4a_file}: {e}")
 
-    # Download the YouTube playlist and extract metadata for each video
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        playlist_info = ydl.extract_info(playlist_url, download=False)  # Don't download initially, just extract info
-        for video in playlist_info.get('entries', []):
-            title = video.get('title', 'N/A')
-            upload_date = video.get('upload_date', 'N/A')
-            duration = f"{video.get('duration', 0) // 60} min"
-            description = video.get('description', 'N/A')
-            video_url = video.get('url', 'N/A')
+# Function to clean HTML tags using BeautifulSoup
+def clean_html(html_content):
+    soup = BeautifulSoup(html_content, "html.parser")
+    return soup.get_text(separator=" ", strip=True)
 
-            # Download MP4 and MP3 files for each video
-            ydl_opts.update({
-                'outtmpl': f"{title}.%(ext)s",  # Save video and audio files with the same title
-                'format': 'bestvideo+bestaudio/best',  # Download video and audio
-            })
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl_download:
-                ydl_download.download([video_url])
-            
-            # Write video metadata to the CSV
-            csv_writer.writerow([title, 'YouTube', upload_date, duration, description, f"{title}.mp4"])
+# Function to fetch and parse RSS feed
+def fetch_rss_metadata():
+    feed = feedparser.parse(rss_url)
 
-# Main execution
-youtube_playlist_url = 'https://www.youtube.com/playlist?list=PLvdtbgGlG0vblk0_ynIZgDwEew4kxUoAI'
-spotify_podcast_url = 'https://creators.spotify.com/pod/show/idahohumanities'
+    with open(metadata_csv, mode='w', newline='', encoding='utf-8') as file:
+        writer = csv.writer(file)
+        writer.writerow(["Title", "Description", "Published", "Creator", "Duration", "Media URL", "File Type"])
 
-# Open CSV file to store collected metadata
-with open('media_metadata.csv', mode='w', newline='') as file:
-    writer = csv.writer(file)
-    writer.writerow(['Title', 'Platform', 'Date', 'Duration', 'Description', 'File/Link'])
+        for entry in feed.entries:
+            title = entry.title.replace("/", "-")
+            description = clean_html(entry.summary)
+            published = entry.published if 'published' in entry else "Unknown"
+            creator = clean_html(entry.get("dc:creator", "Unknown"))  # Extracting creator
+            duration = entry.get("itunes_duration", "Unknown")
+            media_url = None
+            file_type = None
 
-    # Fetch YouTube data
-    print("Fetching YouTube data...")
-    fetch_youtube_audio_and_video(youtube_playlist_url, writer)
+            unsupported_files = []  # List to store unsupported file types
 
-    # Fetch Spotify metadata
-    print("Fetching Spotify metadata...")
-    fetch_spotify_metadata(spotify_podcast_url, writer)
+            if 'enclosures' in entry:
+                for enclosure in entry.enclosures:
+                    media_type = enclosure['type']
+                    media_url = enclosure['url']
 
-print('Data collection completed.')
+                    # Check for supported file types including .m4a
+                    if 'audio/mpeg' in media_type:
+                        file_type = 'mp3'
+                    elif 'audio/x-m4a' in media_type or 'audio/m4a' in media_type:
+                        file_type = 'm4a'
+                    elif 'video/mp4' in media_type:
+                        file_type = 'mp4'
+                    elif 'video/x-matroska' in media_type:
+                        file_type = 'mkv'
+                    else:
+                        unsupported_files.append(media_type)
+
+                    if media_url and file_type:
+                        download_media(media_url, title, file_type)
+
+                        # Convert .m4a to .mp3 if necessary
+                        if file_type == 'm4a':
+                            m4a_file = os.path.join(save_dir, f"{title}.m4a")
+                            mp3_file = os.path.join(save_dir, f"{title}.mp3")
+                            convert_m4a_to_mp3(m4a_file, mp3_file)
+                            os.remove(m4a_file)  # Remove the original M4A file after conversion
+                            file_type = 'mp3'  # Update the file type
+
+                        writer.writerow([title, description, published, creator, duration, media_url, file_type])
+                        break
+
+            if not media_url:
+                print(f"No media downloaded for: {title}")
+
+            if unsupported_files:
+                print(f"Unsupported file types for '{title}': {', '.join(unsupported_files)}")
+
+# Call the function to fetch, download media, and save metadata
+fetch_rss_metadata()
