@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime
 
 # URL of the RSS feed
-rss_url = "https://anchor.fm/s/8a0924fc/podcast/rss"
+rss_url = "https://pft.libsyn.com/rss"
 
 # Directory where you want to save the media files
 save_dir = "podcast_media_files"
@@ -64,7 +64,7 @@ def fetch_rss_metadata():
         for entry in feed.entries:
             title = entry.title.replace("/", "-")
             description = clean_html(entry.summary)
-            published = datetime.strptime(entry.published, "%a, %d %b %Y %H:%M:%S GMT").strftime("%Y-%m-%d") if 'published' in entry else "Unknown"
+            published = datetime.strptime(entry.published, "%a, %d %b %Y %H:%M:%S %z").strftime("%Y-%m-%d") if 'published' in entry else "Unknown"
             creator = clean_html(entry.get("author", "Unknown"))  # Extracting creator from <author> field
             duration = entry.get("itunes_duration", "Unknown")
             media_url = None
